@@ -1,0 +1,19 @@
+package com.inventory.dto.response;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.Map;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class StoreStatsResponse {
+
+    private Map<String, Long> countsByType;
+    private long totalActive;
+    private long totalInactive;
+}

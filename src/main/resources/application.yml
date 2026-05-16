@@ -1,0 +1,76 @@
+spring:
+  config:
+    import: "optional:file:.env[.properties]"
+  application:
+    name: inventory-management
+  datasource:
+    url: jdbc:postgresql://localhost:5432/inventory_db
+    username: ${DB_USER:inventory_user}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 3000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc.batch_size: 20
+        order_inserts: true
+        order_updates: true
+    open-in-view: false
+  data:
+    mongodb:
+      uri: ${MONGO_URI}
+      auto-index-creation: true
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 3000
+  shutdown: graceful
+  compression:
+    enabled: true
+    mime-types: application/json
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+
+jwt:
+  access-token-secret: ${JWT_ACCESS_SECRET}
+  refresh-token-secret: ${JWT_REFRESH_SECRET}
+  access-token-expiration-ms: 900000
+  refresh-token-expiration-ms: 604800000
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      mongoProducts:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 20s
+        permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+
+logging:
+  level:
+    root: INFO
+    com.inventory: DEBUG

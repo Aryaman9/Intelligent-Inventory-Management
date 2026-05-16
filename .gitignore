@@ -1,0 +1,37 @@
+# Build artifacts
+target/
+build/
+*.class
+*.jar
+*.war
+
+# Logs
+*.log
+*.log.*
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven wrapper jar (keep .mvn/wrapper/maven-wrapper.properties)
+.mvn/wrapper/maven-wrapper.jar
+
+# Frontend
+frontend/dist
+frontend/node_modules
+frontend/.env
+frontend/.env.local
