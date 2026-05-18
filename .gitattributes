@@ -1,0 +1,5 @@
+# Mark auto-generated files so GitHub Linguist excludes them from language stats
+frontend/package-lock.json linguist-generated=true
+frontend/src/assets/**    linguist-detectable=false
+mvnw                      linguist-detectable=false
+mvnw.cmd                  linguist-detectable=false
