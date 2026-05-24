@@ -3,7 +3,8 @@
 A full-stack inventory management system for small/mid-sized retailers. Users register, create stores, manage a product catalog, track stock levels, record sales/purchases/returns, and get automated alerts for low stock and expiring items.
 
 **Backend:** Spring Boot 3 · Java 21 · PostgreSQL · MongoDB · Redis  
-**Frontend:** React 19 · TypeScript · Vite · TanStack Query · Tailwind CSS
+**Frontend:** React 19 · TypeScript · Vite · TanStack Query · Tailwind CSS  
+**Observability:** Micrometer · Prometheus · Logstash JSON logging · Swagger UI
 
 ---
 
@@ -35,9 +36,10 @@ React (Vite :5173)
     │  HTTP + JWT
     ▼
 Spring Boot (:3000)
-  ├─ CorrelationIdFilter  →  MDC trace ID on every request
-  ├─ JwtAuthenticationFilter
-  └─ IdempotencyFilter    →  deduplicates POST/PUT/PATCH via Redis
+  ├─ CorrelationIdFilter   →  MDC trace ID on every request
+  ├─ JwtAuthenticationFilter  →  validates JWT, sets MDC userId
+  ├─ RateLimitFilter       →  per-tier Redis counter (FREE/PRO/ENTERPRISE)
+  └─ IdempotencyFilter     →  deduplicates POST/PUT/PATCH via Redis
 
 Services (@Transactional)
   └─ ApplicationEventPublisher
@@ -47,7 +49,12 @@ Services (@Transactional)
 
 PostgreSQL  — users, stores, inventory, transactions, audit log
 MongoDB     — product catalog (flexible schema: variants, attributes)
-Redis       — JWT blacklist, idempotency store, inventory cache, alert TTLs
+Redis       — JWT blacklist, idempotency store, inventory cache, alert TTLs, rate limit counters
+
+Observability
+  ├─ Prometheus metrics via Micrometer  →  /actuator/prometheus
+  ├─ Structured JSON logs via Logstash encoder (traceId + userId in every line)
+  └─ Swagger UI  →  /swagger-ui.html
 ```
 
 The split between PostgreSQL and MongoDB is intentional: relational data (stores, stock levels, transactions) lives in Postgres with foreign key constraints; product definitions go to MongoDB because attributes vary significantly by category (pharmaceuticals have prescription flags, perishables have shelf life, etc.).
@@ -68,6 +75,12 @@ The split between PostgreSQL and MongoDB is intentional: relational data (stores
 
 **Event-driven audit log** — Every user action publishes a `UserActionAuditEvent` consumed asynchronously by `AuditLogListener`. Async consumption means a slow audit write can never block a sale.
 
+**Per-tier rate limiting** — A Redis INCR counter tracks read and write requests per user per minute. Limits differ by subscription plan (FREE: 60R/30W, PRO: 300R/100W, ENTERPRISE: 1000R/500W). On first increment the key gets a 60-second TTL; on breach the response is HTTP 429 with `Retry-After` and `X-RateLimit-*` headers. Auth and actuator endpoints are exempt.
+
+**Prometheus metrics** — `MetricsService` wraps Micrometer counters and timers for sale success/failure/latency, cache hit/miss, idempotency replays, alert triggers, and rate limit breaches. All metrics carry a common `application` tag; sale/cache metrics also carry `storeId` or `cacheName` for slice queries.
+
+**Structured JSON logging** — Logstash encoder writes every log line as a JSON object including `traceId` (from `CorrelationIdFilter`) and `userId` (from `JwtAuthenticationFilter`) MDC fields, making log aggregation and correlation straightforward.
+
 ---
 
 ## Tech Stack
@@ -86,6 +99,9 @@ The split between PostgreSQL and MongoDB is intentional: relational data (stores
 | Forms | React Hook Form + Zod |
 | Styling | Tailwind CSS v4, Radix UI |
 | Containers | Docker Compose (Postgres + MongoDB + Redis) |
+| Metrics | Micrometer, Prometheus |
+| Logging | Logback + logstash-logback-encoder |
+| API Docs | SpringDoc OpenAPI 3 (Swagger UI) |
 
 ---
 
@@ -110,6 +126,10 @@ Key endpoint groups:
 - `POST /api/v1/transactions/sale` — `/purchase` — `/return`
 - `GET /api/v1/transactions` — `/stats`
 - `GET /api/v1/alerts`
+
+Rate-limited responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers on every request. HTTP 429 responses also include `Retry-After`.
+
+**Swagger UI** is available at `http://localhost:3000/swagger-ui.html`. Click "Authorize" and paste a JWT to test protected endpoints directly. **Prometheus metrics** are exposed at `http://localhost:3000/actuator/prometheus`.
 
 ---
 

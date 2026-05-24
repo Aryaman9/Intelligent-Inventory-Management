@@ -52,7 +52,12 @@ management:
         include: health,info,metrics,prometheus
   endpoint:
     health:
+      probes:
+        enabled: true
       show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 jwt:
   access-token-secret: ${JWT_ACCESS_SECRET}
@@ -69,6 +74,19 @@ resilience4j:
         wait-duration-in-open-state: 20s
         permitted-number-of-calls-in-half-open-state: 3
         register-health-indicator: true
+
+rate-limit:
+  enabled: true
+  tiers:
+    FREE:
+      read-per-min: 60
+      write-per-min: 30
+    PRO:
+      read-per-min: 300
+      write-per-min: 100
+    ENTERPRISE:
+      read-per-min: 1000
+      write-per-min: 500
 
 logging:
   level:

@@ -1,6 +1,7 @@
 package com.inventory.cache;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.inventory.observability.MetricsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -18,11 +19,16 @@ public class CacheService {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final MetricsService metricsService;
 
     public <T> Optional<T> get(String key, Class<T> type) {
         Object value = redisTemplate.opsForValue().get(key);
-        if (value == null) return Optional.empty();
+        if (value == null) {
+            metricsService.incrementCacheMiss(cacheName(key));
+            return Optional.empty();
+        }
         try {
+            metricsService.incrementCacheHit(cacheName(key));
             if (type.isInstance(value)) {
                 return Optional.of(type.cast(value));
             }
@@ -31,6 +37,11 @@ public class CacheService {
             log.warn("Cache deserialization failed for key={}, type={}", key, type.getSimpleName(), e);
             return Optional.empty();
         }
+    }
+
+    private String cacheName(String key) {
+        int idx = key.indexOf(':');
+        return idx > 0 ? key.substring(0, idx) : key;
     }
 
     public <T> void put(String key, T value, Duration ttl) {

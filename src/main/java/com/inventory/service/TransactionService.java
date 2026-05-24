@@ -22,10 +22,12 @@ import com.inventory.exception.InsufficientStockException;
 import com.inventory.exception.ResourceNotFoundException;
 import com.inventory.idempotency.IdempotencyStore;
 import com.inventory.mapper.TransactionMapper;
+import com.inventory.observability.MetricsService;
 import com.inventory.repository.jpa.InventoryRepository;
 import com.inventory.repository.jpa.StoreRepository;
 import com.inventory.repository.jpa.TransactionRepository;
 import com.inventory.resilience.MongoProductClient;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -65,6 +67,7 @@ public class TransactionService {
     private final IdempotencyStore idempotencyStore;
     private final TransactionMapper txnMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final MetricsService metricsService;
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     @Retryable(
@@ -73,6 +76,7 @@ public class TransactionService {
             backoff = @Backoff(delay = 50, multiplier = 2)
     )
     public SaleResponse recordSale(SaleRequest request, UUID userId, String idempotencyKey) {
+        Timer.Sample saleTimer = metricsService.startSaleTimer();
 
         Optional<SaleResponse> cached = idempotencyStore.get("sale", idempotencyKey, SaleResponse.class);
         if (cached.isPresent()) {
@@ -127,6 +131,10 @@ public class TransactionService {
                 .productName(productName)
                 .build();
 
+        String storeIdStr = inv.getStore().getId().toString();
+        metricsService.stopSaleTimer(saleTimer, storeIdStr);
+        metricsService.incrementSaleSuccess(storeIdStr);
+
         // Capture for lambda (inv is already effectively final after save returns the same object)
         final Inventory savedInv = inv;
         final Transaction savedTxn = txn;
@@ -171,6 +179,7 @@ public class TransactionService {
                                     SaleRequest request, UUID userId, String idempotencyKey) {
         if (ex instanceof ObjectOptimisticLockingFailureException) {
             log.error("Sale failed after 3 retries due to optimistic lock conflict", ex);
+            metricsService.incrementSaleFailure(request.getInventoryId().toString(), "OPTIMISTIC_LOCK_CONFLICT");
             throw new ConflictException(
                     "Transaction failed due to concurrent modification — please retry",
                     ErrorCode.CONF_001);

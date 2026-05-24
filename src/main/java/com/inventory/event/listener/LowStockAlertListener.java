@@ -1,6 +1,7 @@
 package com.inventory.event.listener;
 
 import com.inventory.event.SaleCompletedEvent;
+import com.inventory.observability.MetricsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -19,6 +20,7 @@ import java.util.Map;
 public class LowStockAlertListener {
 
     private final RedisTemplate<String, Object> redis;
+    private final MetricsService metricsService;
 
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
@@ -35,6 +37,7 @@ public class LowStockAlertListener {
                     "detectedAt", Instant.now().toString()
             );
             redis.opsForValue().set(key, alert, Duration.ofMinutes(30));
+            metricsService.incrementLowStockAlert(event.getStoreId().toString());
             log.info("Low stock alert raised for inventory={}, quantity={}",
                     event.getInventoryId(), event.getNewQuantity());
         }

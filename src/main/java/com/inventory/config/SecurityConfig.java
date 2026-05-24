@@ -1,5 +1,6 @@
 package com.inventory.config;
 
+import com.inventory.ratelimit.RateLimitFilter;
 import com.inventory.security.JwtAuthenticationEntryPoint;
 import com.inventory.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
+    private final RateLimitFilter rateLimitFilter;
     private final JwtAuthenticationEntryPoint entryPoint;
 
     @Bean
@@ -44,7 +46,8 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(rateLimitFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 
@@ -53,11 +56,17 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder(12);
     }
 
-    // Prevent double-registration: JwtAuthenticationFilter is @Component (needed for injection here)
-    // but should only run inside the Security filter chain, not also in the servlet container chain.
+    // Prevent double-registration of filters that are @Component but must only run inside the Security chain.
     @Bean
     public FilterRegistrationBean<JwtAuthenticationFilter> jwtFilterRegistration(JwtAuthenticationFilter filter) {
         FilterRegistrationBean<JwtAuthenticationFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setEnabled(false);
+        return reg;
+    }
+
+    @Bean
+    public FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter filter) {
+        FilterRegistrationBean<RateLimitFilter> reg = new FilterRegistrationBean<>(filter);
         reg.setEnabled(false);
         return reg;
     }
