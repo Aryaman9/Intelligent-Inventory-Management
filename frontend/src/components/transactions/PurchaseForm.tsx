@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { useForm, useWatch, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2 } from 'lucide-react';
@@ -48,7 +48,9 @@ export function PurchaseForm({ storeId, preselectedInventoryId, onSuccess }: Pur
     control,
     formState: { errors },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    // zod v4's z.coerce.number() has an `unknown` input type, so cast the resolver to the
+    // form's value type to satisfy react-hook-form's generics. Runtime behavior is unchanged.
+    resolver: zodResolver(schema) as unknown as Resolver<FormValues>,
     defaultValues: {
       inventoryId: preselectedInventoryId ?? '',
       quantity: undefined,

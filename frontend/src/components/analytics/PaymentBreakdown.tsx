@@ -40,7 +40,7 @@ export function PaymentBreakdown({ breakdown }: PaymentBreakdownProps) {
             <Cell key={index} fill={COLORS[index % COLORS.length]} />
           ))}
         </Pie>
-        <Tooltip formatter={(value: number) => [`₹${value}`, '']} />
+        <Tooltip formatter={(value) => [`₹${Number(value)}`, '']} />
         <Legend />
       </PieChart>
     </ResponsiveContainer>

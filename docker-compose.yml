@@ -42,6 +42,41 @@ services:
       timeout: 5s
       retries: 5
 
+  # Application services run only under the "full" profile:
+  #   docker-compose --profile full up -d   -> databases + backend + frontend
+  #   docker-compose up -d                  -> databases only (for `npm run dev` + `mvnw spring-boot:run`)
+  backend:
+    build: .
+    profiles: ["full"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/inventory_db
+      DB_USER: inventory_user
+      DB_PASSWORD: inventory_secure_pass_123
+      MONGO_URI: mongodb://mongo_user:mongo_pass@mongodb:27017/inventory_catalog?authSource=admin
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Dev-only secrets for local Docker. Override with real values in any real environment.
+      JWT_ACCESS_SECRET: docker-compose-access-secret-change-me-0123456789abcdef
+      JWT_REFRESH_SECRET: docker-compose-refresh-secret-change-me-fedcba9876543210
+
+  frontend:
+    build: ./frontend
+    profiles: ["full"]
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
 volumes:
   pgdata:
   mongodata:

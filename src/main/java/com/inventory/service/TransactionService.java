@@ -72,8 +72,8 @@ public class TransactionService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     @Retryable(
             retryFor = ObjectOptimisticLockingFailureException.class,
-            maxAttempts = 3,
-            backoff = @Backoff(delay = 50, multiplier = 2)
+            maxAttempts = 10,
+            backoff = @Backoff(delay = 25, multiplier = 2, maxDelay = 200)
     )
     public SaleResponse recordSale(SaleRequest request, UUID userId, String idempotencyKey) {
         Timer.Sample saleTimer = metricsService.startSaleTimer();
@@ -191,8 +191,8 @@ public class TransactionService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     @Retryable(
             retryFor = ObjectOptimisticLockingFailureException.class,
-            maxAttempts = 3,
-            backoff = @Backoff(delay = 50, multiplier = 2)
+            maxAttempts = 10,
+            backoff = @Backoff(delay = 25, multiplier = 2, maxDelay = 200)
     )
     public SaleResponse recordPurchase(PurchaseRequest request, UUID userId, String idempotencyKey) {
 
@@ -295,8 +295,8 @@ public class TransactionService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     @Retryable(
             retryFor = ObjectOptimisticLockingFailureException.class,
-            maxAttempts = 3,
-            backoff = @Backoff(delay = 50, multiplier = 2)
+            maxAttempts = 10,
+            backoff = @Backoff(delay = 25, multiplier = 2, maxDelay = 200)
     )
     public TransactionResponse recordReturn(ReturnRequest request, UUID userId, String idempotencyKey) {
 

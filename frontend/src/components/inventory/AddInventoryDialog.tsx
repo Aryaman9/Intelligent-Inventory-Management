@@ -1,4 +1,4 @@
-import { useForm } from 'react-hook-form';
+import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAddInventory } from '@/hooks/useInventory';
@@ -54,7 +54,9 @@ export function AddInventoryDialog({ storeId, open, onOpenChange }: Props) {
     reset,
     formState: { errors },
   } = useForm<FormData>({
-    resolver: zodResolver(schema),
+    // zod v4's z.coerce.number() has an `unknown` input type, so cast the resolver to the
+    // form's value type to satisfy react-hook-form's generics. Runtime behavior is unchanged.
+    resolver: zodResolver(schema) as unknown as Resolver<FormData>,
     defaultValues: {
       unit: 'PCS',
       lowStockThreshold: 10,

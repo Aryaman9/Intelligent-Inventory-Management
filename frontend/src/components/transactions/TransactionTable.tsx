@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useStoreTransactions } from '@/hooks/useTransactions';
 import { cn } from '@/lib/utils';

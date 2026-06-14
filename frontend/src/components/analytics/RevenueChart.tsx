@@ -34,7 +34,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
         <XAxis dataKey="date" tick={{ fontSize: 12 }} />
         <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `₹${v}`} />
         <Tooltip
-          formatter={(value: number) => [`₹${value.toFixed(2)}`, 'Revenue']}
+          formatter={(value) => [`₹${Number(value).toFixed(2)}`, 'Revenue']}
         />
         <Line
           type="monotone"

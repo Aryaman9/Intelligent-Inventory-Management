@@ -1,148 +1,221 @@
 # Inventory Management Platform
 
-A full-stack inventory management system for small/mid-sized retailers. Users register, create stores, manage a product catalog, track stock levels, record sales/purchases/returns, and get automated alerts for low stock and expiring items.
+Full-stack, production-grade multi-tenant inventory management platform for small/mid-sized
+retailers. Users register, create stores, manage a product catalog, track stock, record
+sales/purchases/returns, and get automated low-stock and expiry alerts.
 
-**Backend:** Spring Boot 3 · Java 21 · PostgreSQL · MongoDB · Redis  
-**Frontend:** React 19 · TypeScript · Vite · TanStack Query · Tailwind CSS  
-**Observability:** Micrometer · Prometheus · Logstash JSON logging · Swagger UI
+**Backend:** Java 21 · Spring Boot 3 &nbsp;|&nbsp; **Frontend:** React 19 · TypeScript
 
----
-
-## Running Locally
-
-**Prerequisites:** Docker, Java 21, Node 20+
-
-```bash
-# 1. Start infrastructure
-docker-compose up -d
-
-# 2. Start backend (port 3000)
-./mvnw spring-boot:run
-
-# 3. Start frontend (port 5173)
-cd frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173`, register an account, and start from there.
+[![CI](https://github.com/Aryaman9/Intelligent-Inventory-Management/actions/workflows/ci.yml/badge.svg)](https://github.com/Aryaman9/Intelligent-Inventory-Management/actions/workflows/ci.yml) ![Java](https://img.shields.io/badge/Java-21-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-green) ![React](https://img.shields.io/badge/React-19-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue) ![Postgres](https://img.shields.io/badge/PostgreSQL-14-blue) ![MongoDB](https://img.shields.io/badge/MongoDB-6-green) ![Redis](https://img.shields.io/badge/Redis-7-red)
 
 ---
 
 ## Architecture
 
 ```
-React (Vite :5173)
-    │  HTTP + JWT
+React (Vite :5173 dev  /  nginx :80 prod)
+    │  HTTP + JWT  (/api/v1 proxied to backend)
     ▼
 Spring Boot (:3000)
-  ├─ CorrelationIdFilter   →  MDC trace ID on every request
-  ├─ JwtAuthenticationFilter  →  validates JWT, sets MDC userId
-  ├─ RateLimitFilter       →  per-tier Redis counter (FREE/PRO/ENTERPRISE)
-  └─ IdempotencyFilter     →  deduplicates POST/PUT/PATCH via Redis
+  ├─ CorrelationIdFilter      →  MDC trace ID on every request
+  ├─ JwtAuthenticationFilter  →  validates JWT, checks blacklist, sets MDC userId
+  ├─ RateLimitFilter          →  per-tier Redis counter (FREE/PRO/ENTERPRISE)
+  └─ IdempotencyFilter        →  requires Idempotency-Key on transaction writes
 
 Services (@Transactional)
-  └─ ApplicationEventPublisher
-       ├─ InventoryUpdatedEvent  →  AlertListener (async)
-       ├─ SaleCompletedEvent     →  CacheInvalidationListener (async)
-       └─ UserActionAuditEvent   →  AuditLogListener (async)
+  └─ ApplicationEventPublisher  (after-commit, async)
+       ├─ SaleCompletedEvent      →  LowStockAlertListener / ExpiryAlertListener
+       ├─ InventoryUpdatedEvent   →  CacheInvalidationListener
+       └─ UserActionAuditEvent    →  AuditLogListener
 
-PostgreSQL  — users, stores, inventory, transactions, audit log
+PostgreSQL  — users, stores, inventory (@Version), transactions, audit log
 MongoDB     — product catalog (flexible schema: variants, attributes)
-Redis       — JWT blacklist, idempotency store, inventory cache, alert TTLs, rate limit counters
+Redis       — JWT blacklist, idempotency store, inventory cache, alert TTLs, rate-limit counters
 
 Observability
   ├─ Prometheus metrics via Micrometer  →  /actuator/prometheus
-  ├─ Structured JSON logs via Logstash encoder (traceId + userId in every line)
-  └─ Swagger UI  →  /swagger-ui.html
+  ├─ Structured JSON logs (traceId + userId in every line)
+  └─ Swagger UI                          →  /swagger-ui.html
 ```
 
-The split between PostgreSQL and MongoDB is intentional: relational data (stores, stock levels, transactions) lives in Postgres with foreign key constraints; product definitions go to MongoDB because attributes vary significantly by category (pharmaceuticals have prescription flags, perishables have shelf life, etc.).
+The split between PostgreSQL and MongoDB is intentional: relational data (stores, stock levels,
+transactions) lives in Postgres with foreign-key constraints; product definitions go to MongoDB
+because attributes vary significantly by category (pharmaceuticals have prescription flags,
+perishables have shelf life, etc.).
 
 ---
 
-## Notable Implementation Details
+## Key SDE-2 Features
 
-**Optimistic locking with retry** — Inventory rows carry a `@Version` column. `recordSale` and `recordPurchase` are annotated with `@Retryable(ObjectOptimisticLockingFailureException, maxAttempts=3)` so concurrent writes on the same SKU back off and retry rather than failing immediately.
-
-**Idempotency for financial operations** — Every sale, purchase, and return requires an `Idempotency-Key` header. The key is checked before any DB write; on a replay the cached response is returned as-is. The key is persisted to Redis inside `afterCommit()` so a mid-flight crash can't produce a committed transaction with no idempotency record.
-
-**Cache stampede protection** — `CacheService.getOrLoad` acquires a Redis lock on cache miss so only one thread fetches from the source; other threads poll until the value is warm rather than all hitting Postgres simultaneously.
-
-**Circuit breaker** — MongoDB product lookups go through a Resilience4j circuit breaker (`mongoProducts`). When the circuit is open, transactions fall back to "Unknown Product" for the name field and continue rather than failing the sale.
-
-**JWT with blacklist** — Logout adds the access token to a Redis set (TTL matching remaining token validity). The JWT filter checks this set before trusting any token, so logout is effective immediately without waiting for token expiry.
-
-**Event-driven audit log** — Every user action publishes a `UserActionAuditEvent` consumed asynchronously by `AuditLogListener`. Async consumption means a slow audit write can never block a sale.
-
-**Per-tier rate limiting** — A Redis INCR counter tracks read and write requests per user per minute. Limits differ by subscription plan (FREE: 60R/30W, PRO: 300R/100W, ENTERPRISE: 1000R/500W). On first increment the key gets a 60-second TTL; on breach the response is HTTP 429 with `Retry-After` and `X-RateLimit-*` headers. Auth and actuator endpoints are exempt.
-
-**Prometheus metrics** — `MetricsService` wraps Micrometer counters and timers for sale success/failure/latency, cache hit/miss, idempotency replays, alert triggers, and rate limit breaches. All metrics carry a common `application` tag; sale/cache metrics also carry `storeId` or `cacheName` for slice queries.
-
-**Structured JSON logging** — Logstash encoder writes every log line as a JSON object including `traceId` (from `CorrelationIdFilter`) and `userId` (from `JwtAuthenticationFilter`) MDC fields, making log aggregation and correlation straightforward.
+| Feature | What It Does | Why It Matters |
+|---|---|---|
+| **Optimistic Locking** | `@Version` on inventory + `@Retryable` (3 attempts, backoff) | Prevents negative stock under concurrent sales |
+| **Idempotency** | Redis-backed dedup on all transaction mutations, persisted in `afterCommit()` | Prevents duplicate transactions on network retry |
+| **Event-Driven Alerts** | `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` | Decoupled alert pipeline (low stock, expiry) |
+| **Circuit Breaker** | Resilience4j around MongoDB product lookups | Sale continues with a fallback product name when Mongo is down |
+| **Rate Limiting** | Per-user, per-tier Redis counters (FREE/PRO/ENTERPRISE) | Protects the backend from abuse; returns 429 + `Retry-After` |
+| **Cache Stampede Guard** | Redis lock on cache miss in `CacheService.getOrLoad` | Prevents a thundering herd on hot keys |
+| **Structured Observability** | JSON logs + Prometheus metrics + trace IDs | Production monitoring ready |
+| **JWT with Blacklist** | Logout/refresh-rotation blacklist token JTIs in Redis | Logout is effective immediately, not at token expiry |
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Language | Java 21 |
-| Framework | Spring Boot 3.3 |
-| Databases | PostgreSQL 14, MongoDB 6, Redis 7 |
-| ORM | Spring Data JPA + Hibernate 6 |
-| Security | Spring Security 6, JJWT 0.12 |
-| Resilience | Resilience4j (circuit breaker + retry) |
-| Migrations | Flyway |
-| Mapping | MapStruct 1.5 |
-| Frontend | React 19, TypeScript, Vite, TanStack Query v5 |
-| Forms | React Hook Form + Zod |
-| Styling | Tailwind CSS v4, Radix UI |
-| Containers | Docker Compose (Postgres + MongoDB + Redis) |
-| Metrics | Micrometer, Prometheus |
-| Logging | Logback + logstash-logback-encoder |
-| API Docs | SpringDoc OpenAPI 3 (Swagger UI) |
+**Backend**: Java 21, Spring Boot 3.3, PostgreSQL 14, MongoDB 6, Redis 7, Flyway, MapStruct,
+Resilience4j, JJWT 0.12, Micrometer/Prometheus, Logstash JSON logging, Testcontainers, RestAssured.
+
+**Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Radix UI, TanStack Query v5,
+React Hook Form + Zod, Recharts.
 
 ---
 
-## API
+## Quick Start
 
-All endpoints are under `/api/v1`. The server runs on port `3000`.
+### Prerequisites
+- Java 21
+- Node.js 20+
+- Docker & Docker Compose
+- Maven (or use the included `./mvnw` wrapper)
 
-Every response follows the same envelope:
+### Option 1 — Local Development (recommended)
+
+```bash
+# 1. Start databases (Postgres + MongoDB + Redis)
+docker-compose up -d
+
+# 2. Copy env defaults (sets DB password + JWT secrets for local use)
+cp .env.example .env
+
+# 3. Run the backend (port 3000)
+./mvnw spring-boot:run
+
+# 4. In another terminal — run the frontend (port 5173)
+cd frontend
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173> — the Vite dev server proxies `/api` calls to the backend.
+
+### Option 2 — Full Docker
+
+```bash
+docker-compose --profile full up -d
+```
+
+This builds and runs everything: frontend on **port 80**, backend on **3000**, plus all three
+databases. (The plain `docker-compose up -d` above starts only the databases, for local dev.)
+
+### Run Tests
+
+```bash
+# Backend unit + integration tests (Docker must be running for Testcontainers)
+./mvnw verify
+
+# Frontend type-check + build
+cd frontend && npm run build
+```
+
+### Endpoints
+- **Frontend**: <http://localhost:5173> (dev) or <http://localhost:80> (Docker)
+- **API**: <http://localhost:3000/api/v1/>
+- **Swagger UI**: <http://localhost:3000/swagger-ui.html>
+- **Health**: <http://localhost:3000/actuator/health>
+- **Metrics**: <http://localhost:3000/actuator/prometheus>
+
+---
+
+## Screenshots
+
+> _Add screenshots of the Dashboard, Inventory page, Sale form with invoice, and Alerts page here._
+
+---
+
+## API Overview
+
+All endpoints are under `/api/v1`. Every response uses the same envelope:
 
 ```json
-{ "success": true, "message": "...", "data": { ... } }
-{ "success": false, "error": "...", "errorCode": "INV_001", "correlationId": "...", "timestamp": "..." }
+{ "success": true,  "message": "...", "data": { ... }, "correlationId": "...", "timestamp": "..." }
+{ "success": false, "error": "...", "errorCode": "INV_003", "correlationId": "...", "timestamp": "..." }
 ```
 
 Paginated responses include a `pagination` object with `total`, `page`, `limit`, and `pages`.
 
-Key endpoint groups:
-- `POST /api/v1/auth/register` — `POST /api/v1/auth/login` — `POST /api/v1/auth/logout`
-- `GET|POST|PUT|DELETE /api/v1/stores`
-- `GET|POST|PUT|DELETE /api/v1/products`
-- `GET|POST|PUT|DELETE /api/v1/inventory`
-- `POST /api/v1/transactions/sale` — `/purchase` — `/return`
-- `GET /api/v1/transactions` — `/stats`
-- `GET /api/v1/alerts`
+| Module | Endpoints |
+|---|---|
+| Auth | `POST /auth/register` · `POST /auth/login` · `POST /auth/refresh` · `GET /auth/me` · `POST /auth/logout` |
+| Stores | `GET\|POST /stores` · `GET\|PATCH\|DELETE /stores/{id}` · `GET /stores/stats` |
+| Products | `GET\|POST /products` · `GET\|PATCH\|DELETE /products/{id}` · `GET /products/categories` |
+| Inventory | `POST /inventory` · `GET\|PATCH\|DELETE /inventory/{id}` · `GET /inventory/store/{storeId}` · `GET /inventory/alerts` · `GET /inventory/stats/{storeId}` |
+| Transactions | `POST /transactions/sale` · `/purchase` · `/return` · `GET /transactions/store/{storeId}` · `GET /transactions/stats/{storeId}` |
 
-Rate-limited responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers on every request. HTTP 429 responses also include `Retry-After`.
+All transaction writes require an `Idempotency-Key` header. Every authenticated response carries
+`X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`; 429 responses also carry
+`Retry-After`. The OpenAPI document is served live at `/v3/api-docs`.
 
-**Swagger UI** is available at `http://localhost:3000/swagger-ui.html`. Click "Authorize" and paste a JWT to test protected endpoints directly. **Prometheus metrics** are exposed at `http://localhost:3000/actuator/prometheus`.
+---
+
+## Testing
+
+Five named integration tests (Testcontainers + RestAssured) prove the SDE-2 patterns end-to-end:
+
+1. **`SaleTransactionConcurrencyTest`** — 20 concurrent threads selling from 100 units; optimistic
+   locking yields exactly 10 successful sales and a final quantity of exactly 0, never negative.
+2. **`IdempotencyIntegrationTest`** — the same sale sent 5× with one key produces exactly 1
+   transaction and an identical business payload each time.
+3. **`RateLimitIntegrationTest`** — a FREE-tier user exceeding the write limit receives 429 with a
+   `Retry-After` header.
+4. **`AlertPipelineIntegrationTest`** — a sale that drops stock below threshold surfaces a low-stock
+   alert (Awaitility for the async pipeline).
+5. **`AuthFlowIntegrationTest`** — register → login → `/me` → logout → `/me` returns 401 (blacklisted),
+   plus account lockout and refresh-token rotation.
+
+Service-layer unit tests (`AuthServiceTest`, `TransactionServiceTest`, `InventoryServiceTest`) cover
+registration/login/lockout, sale happy-path/insufficient-stock/ownership/idempotency, and inventory
+creation/ownership/stats.
+
+```bash
+./mvnw verify   # runs all unit + integration tests; Docker required for Testcontainers
+```
+
+---
+
+## Frontend
+
+The React frontend provides:
+
+- **Auth** — login/register with JWT management and automatic refresh-token rotation
+- **Store Management** — create, edit, and manage multiple stores
+- **Product Catalog** — full product CRUD with search and category filtering
+- **Inventory** — per-store stock management with visual low-stock indicators
+- **Sales & Purchases** — forms that generate an `Idempotency-Key` so retries are safe
+- **Alerts Dashboard** — real-time low-stock and expiry alerts
+- **Analytics** — revenue charts, payment breakdowns, and profit margins
+
+---
+
+## Architecture Decision Records
+
+See [`docs/adr/`](docs/adr/):
+
+- [ADR-001 — Optimistic Locking over Pessimistic](docs/adr/001-optimistic-locking.md)
+- [ADR-002 — Idempotency Strategy](docs/adr/002-idempotency-strategy.md)
+- [ADR-003 — Event-Driven Alerts vs Polling](docs/adr/003-event-driven-alerts.md)
 
 ---
 
 ## Environment Variables
 
-The application reads configuration from environment variables with fallback defaults for local development. For any non-local environment set these explicitly:
-
 | Variable | Purpose |
 |---|---|
 | `DB_USER` | PostgreSQL username |
 | `DB_PASSWORD` | PostgreSQL password |
+| `SPRING_DATASOURCE_URL` | JDBC URL (override for Docker networking) |
 | `MONGO_URI` | Full MongoDB connection URI |
-| `REDIS_HOST` | Redis hostname |
-| `REDIS_PORT` | Redis port |
+| `REDIS_HOST` / `REDIS_PORT` | Redis host and port |
 | `JWT_ACCESS_SECRET` | HMAC-SHA256 signing key for access tokens (≥32 chars) |
 | `JWT_REFRESH_SECRET` | HMAC-SHA256 signing key for refresh tokens (≥32 chars) |
+
+See [`.env.example`](.env.example) for local defaults.

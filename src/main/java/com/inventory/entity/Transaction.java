@@ -8,7 +8,13 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "transactions")
+@Table(
+        name = "transactions",
+        // Invoice numbers are a per-store daily sequence, so they are unique per store, not globally.
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_transactions_store_invoice",
+                columnNames = {"store_id", "invoice_number"})
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -52,7 +58,7 @@ public class Transaction {
     @Column(name = "customer_phone", length = 15)
     private String customerPhone;
 
-    @Column(name = "invoice_number", unique = true, length = 100)
+    @Column(name = "invoice_number", length = 100)
     private String invoiceNumber;
 
     @Column(name = "idempotency_key", unique = true)

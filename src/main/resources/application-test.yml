@@ -1,6 +1,22 @@
+# Test profile.
+# Datasource / Mongo / Redis connection details are injected at runtime by
+# TestContainersConfig via @DynamicPropertySource, so they are intentionally
+# absent here. We only override what the containers don't provide.
 spring:
   flyway:
     enabled: true
   jpa:
     hibernate:
       ddl-auto: validate
+
+# application.yml has no defaults for these and they are not provided by the
+# Testcontainers wiring, so they must be set explicitly or the context fails to start.
+# HS256 requires a key of at least 256 bits (32 bytes); these are deterministic test-only keys.
+jwt:
+  access-token-secret: test-access-token-secret-key-for-integration-tests-0123456789
+  refresh-token-secret: test-refresh-token-secret-key-for-integration-tests-9876543210
+
+logging:
+  level:
+    org.testcontainers: INFO
+    com.github.dockerjava: WARN

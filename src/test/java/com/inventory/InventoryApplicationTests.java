@@ -1,12 +1,13 @@
 package com.inventory;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 
-@SpringBootTest
-@ActiveProfiles("test")
-class InventoryApplicationTests {
+/**
+ * Smoke test: verifies the full Spring application context boots against the Testcontainers-backed
+ * Postgres, MongoDB, and Redis. Extends {@link BaseIntegrationTest} so it shares the same cached
+ * context (and containers) as the other integration tests rather than spinning up its own.
+ */
+class InventoryApplicationTests extends BaseIntegrationTest {
 
     @Test
     void contextLoads() {

@@ -26,6 +26,9 @@
         <logstash.version>7.4</logstash.version>
         <springdoc.version>2.3.0</springdoc.version>
         <rest-assured.version>5.4.0</rest-assured.version>
+        <!-- Override Spring Boot's managed Testcontainers (1.19.x) — its bundled docker-java is too
+             old to talk to modern Docker Engines (daemon min API >= 1.44). 1.20.x ships docker-java 3.4. -->
+        <testcontainers.version>1.20.6</testcontainers.version>
     </properties>
 
     <dependencies>
@@ -204,10 +207,31 @@
             <version>${rest-assured.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Pin the Docker API version for docker-java/Testcontainers. Modern Docker Engines
+                         (e.g. Docker Desktop, daemon min API 1.44) reject docker-java's older default with
+                         HTTP 400. docker-java reads the version from the `api.version` system property; the
+                         DOCKER_API_VERSION env var is kept as a belt-and-suspenders for tooling that reads it. -->
+                    <systemPropertyVariables>
+                        <api.version>1.44</api.version>
+                    </systemPropertyVariables>
+                    <environmentVariables>
+                        <DOCKER_API_VERSION>1.44</DOCKER_API_VERSION>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
